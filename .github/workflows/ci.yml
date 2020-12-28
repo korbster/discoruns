@@ -1,0 +1,52 @@
+name: CI
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+  schedule:
+    - cron:  '0 0 * * *'
+
+jobs:
+
+  discoruns:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+        python-version: [3.8, 3.9]
+        exclude:
+          - os: windows-latest
+            python-version: 3.8 # forensicstore requires python 3.9 on windows
+    steps:
+
+      # Setup
+      - uses: actions/checkout@v2
+      - uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: pip install .
+
+      # Lint
+      - run: pip install pylint
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.9' # just lint in one workflow
+      - run: pylint discoruns --rcfile test/python/.pylintrc
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.9' # just lint in one workflow
+
+      # Run
+      - name: Get test data
+        run: |
+          curl -o ntfs.dd https://download.artifacthub.org/filesystem/ntfs.dd
+          curl -o example1.forensicstore https://download.artifacthub.org/forensics/example1.forensicstore
+      - name: Run discoruns image
+        run: discoruns image ntfs.dd # TODO: change image, as this does not contain any persistance artifacts
+        if: matrix.os != 'windows-latest' # windows does not run docker
+      - name: Run discoruns forensicstore
+        run: discoruns --format json forensicstore example1.forensicstore > results.json
+
+      # Eval results
+      - name: Test results
+        run: |
+          cat results.json | jq length | grep 666
+          cat results.json | grep OneDrive.exe
+        shell: bash
